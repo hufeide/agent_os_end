@@ -74,6 +74,12 @@ class ToolRouter:
             return tool
         
         tool_name_lower = tool_name.lower()
+        all_tools = self.registry.list_tools()
+        
+        for t in all_tools:
+            if t.lower() == tool_name_lower or t.lower() in tool_name_lower or tool_name_lower in t.lower():
+                return self.registry.get(t)
+        
         for keyword, target_tool in self._routing_rules.items():
             if keyword in tool_name_lower:
                 return self.registry.get(target_tool)

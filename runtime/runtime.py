@@ -4,15 +4,18 @@ Runtime - Agent运行时
 整合Agent池、调度器和工厂的运行时环境。
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Callable
+import asyncio
+import threading
 
-from .agent_pool import AgentPool
-from .distributed_agent_pool import DistributedAgentPool
-from .scheduler import Scheduler
 from ..agents import DynamicAgentFactory, WorkerAgent
 from ..memory import WorkingMemory, VectorMemory, TaskReplay
 from ..tools import ToolRegistry
 from ..skills import SkillHub
+from ..models import Task
+from .agent_pool import AgentPool
+from .distributed_agent_pool import DistributedAgentPool
+from .scheduler import Scheduler
 from ..cognition import PromptOptimizer, RLAgent
 
 
@@ -31,13 +34,15 @@ class AgentRuntime:
         llm: Any = None,
         vector_memory: Optional[VectorMemory] = None,
         nodes: List[Any] = None,
-        pool_size: int = 10
+        pool_size: int = 10,
+        trace_callback: Optional[Callable] = None
     ):
         self.tools = tools or ToolRegistry()
         self.memory = memory or WorkingMemory()
         self.skill_hub = skill_hub or SkillHub()
         self.llm = llm
         self.vector_memory = vector_memory
+        self.trace_callback = trace_callback
         
         if nodes:
             self.pool = DistributedAgentPool(nodes)
@@ -48,7 +53,8 @@ class AgentRuntime:
                 skill_hub=self.skill_hub,
                 llm=self.llm,
                 vector_memory=self.vector_memory,
-                pool_size=pool_size
+                pool_size=pool_size,
+                trace_callback=trace_callback
             )
         
         self.scheduler = Scheduler(self.pool)
@@ -145,7 +151,7 @@ class AgentRuntime:
         """注册默认工具"""
         from ..tools import SearchTool, CodeTool, FileTool, WebTool
         
-        self.tools.register(SearchTool())
+        self.tools.register(SearchTool(llm=self.llm))
         self.tools.register(CodeTool())
         self.tools.register(FileTool())
         self.tools.register(WebTool())

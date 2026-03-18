@@ -35,13 +35,55 @@ class ReActEngine:
         tool_router,
         llm: Optional[Any] = None,
         max_steps: int = 8,
-        enable_reflection: bool = True
+        enable_reflection: bool = True,
+        trace_callback: Optional[Callable] = None
     ):
         self.tools = tool_router
         self.llm = llm
         self.max_steps = max_steps
         self.enable_reflection = enable_reflection
         self._history: List[tuple] = []
+        self.trace_callback = trace_callback
+    
+    def _get_available_tools_description(self) -> str:
+        """获取可用工具描述"""
+        try:
+            tools = []
+            
+            if hasattr(self.tools, 'get_available_tools'):
+                tools = self.tools.get_available_tools()
+            elif hasattr(self.tools, 'registry') and hasattr(self.tools.registry, 'list_tools'):
+                tools = self.tools.registry.list_tools()
+            elif hasattr(self.tools, 'list_tools'):
+                tools = self.tools.list_tools()
+            
+            print(f"[ReAct] Found tools: {tools}")
+            
+            if not tools:
+                return "answer (return the final result directly)"
+            
+            tool_list = []
+            for name in tools:
+                tool_obj = None
+                if hasattr(self.tools, 'registry'):
+                    tool_obj = self.tools.registry.get(name)
+                elif hasattr(self.tools, 'get'):
+                    tool_obj = self.tools.get(name)
+                
+                if tool_obj and hasattr(tool_obj, 'description'):
+                    tool_list.append(f"- {name}: {tool_obj.description}")
+                else:
+                    tool_list.append(f"- {name}")
+            
+            if not tool_list:
+                return "answer (return the final result directly)"
+            
+            result = "\n".join(tool_list) + "\n- answer (return the final result directly)"
+            print(f"[ReAct] Tools description: {result[:200]}...")
+            return result
+        except Exception as e:
+            print(f"[ReAct] Error getting tools: {e}")
+            return "answer (return the final result directly)"
     
     async def run(self, task: Any) -> Any:
         """
@@ -65,16 +107,30 @@ class ReActEngine:
         for step in range(self.max_steps):
             thought = await self._think(task_description, history, step)
             
+            if self.trace_callback:
+                self.trace_callback(task_id, "think", thought=thought.thought, action=thought.action, action_input=thought.action_input)
+            
             if thought.is_final_answer:
+                if self.trace_callback:
+                    self.trace_callback(task_id, "result", observation=thought.observation, is_final=True)
                 return thought.observation
             
             if thought.needs_action and thought.action:
                 result = await self._act(thought, history)
                 
+                if self.trace_callback:
+                    self.trace_callback(task_id, "tool", action=thought.action, action_input=thought.action_input, observation=result)
+                
                 history.append((thought, result))
                 
                 thought.observation = result
                 self._history.append((thought, result))
+        
+        if history:
+            final_answer = await self._generate_final_answer(task_description, history)
+            if self.trace_callback:
+                self.trace_callback(task_id, "result", observation=final_answer, is_final=True)
+            return final_answer
         
         return history[-1][1] if history else None
     
@@ -101,7 +157,7 @@ class ReActEngine:
         
         return self._default_think(task, history, step)
     
-    async def _llm_think(
+    async def _think(
         self,
         task: str,
         history: List[tuple],
@@ -110,7 +166,12 @@ class ReActEngine:
         """使用LLM进行思考"""
         history_text = self._format_history(history)
         
+        available_tools = self._get_available_tools_description()
+        
         prompt = f"""Current task: {task}
+
+Available tools:
+{available_tools}
 
 History:
 {history_text}
@@ -127,7 +188,7 @@ Decide your next action. Return JSON:
     "observation": "final answer if is_final_answer is true"
 }}
 
-Only return JSON."""
+Only return JSON. Use 'answer' action when you have the final result."""
         
         try:
             if callable(self.llm):
@@ -244,7 +305,8 @@ Only return JSON."""
         tool = self.tools.route(thought.action)
         
         if not tool:
-            return f"Tool {thought.action} not found"
+            available = self._get_available_tools_description()
+            return f"Tool '{thought.action}' not found. Available: {available}"
         
         try:
             result = await tool.execute(**thought.action_input)
@@ -276,3 +338,36 @@ Only return JSON."""
     def clear_history(self) -> None:
         """清空历史"""
         self._history.clear()
+    
+    async def _generate_final_answer(self, task: str, history: List[tuple]) -> str:
+        """生成最终答案"""
+        if not self.llm:
+            return history[-1][1] if history else "No result"
+        
+        history_text = self._format_history(history)
+        
+        prompt = f"""Current task: {task}
+
+You have completed the task using tools. Based on the tool results below, provide a comprehensive final answer to the user.
+
+Tool execution history:
+{history_text}
+
+Please provide a clear, helpful answer based on the tool results above. Do NOT just repeat the raw tool output - synthesize and explain the information."""
+
+        try:
+            if callable(self.llm):
+                response = self.llm(prompt)
+            elif hasattr(self.llm, 'generate'):
+                response = self.llm.generate(prompt)
+            elif hasattr(self.llm, 'agenerate'):
+                response = await self.llm.agenerate(prompt)
+            else:
+                response = str(self.llm)
+            
+            if hasattr(response, 'content'):
+                return response.content
+            return str(response)
+        except Exception as e:
+            print(f"[ReAct] Final answer generation error: {e}")
+            return history[-1][1] if history else "Error generating answer"

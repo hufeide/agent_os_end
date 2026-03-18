@@ -4,7 +4,7 @@ AgentPool - Agent池
 管理一组工作Agent的池化调度。
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Callable
 import asyncio
 import threading
 
@@ -28,7 +28,8 @@ class AgentPool:
         skill_hub: SkillHub,
         llm: Any = None,
         vector_memory: VectorMemory = None,
-        pool_size: int = 10
+        pool_size: int = 10,
+        trace_callback: Optional[Callable] = None
     ):
         self.tools = tools
         self.memory = memory
@@ -36,6 +37,7 @@ class AgentPool:
         self.llm = llm
         self.vector_memory = vector_memory
         self.pool_size = pool_size
+        self.trace_callback = trace_callback
         
         self._agents: List[WorkerAgent] = []
         self._lock = threading.RLock()
@@ -56,7 +58,8 @@ class AgentPool:
                 memory=self.memory,
                 skills=self.skill_hub,
                 llm=self.llm,
-                vector_memory=self.vector_memory
+                vector_memory=self.vector_memory,
+                trace_callback=self.trace_callback
             )
             self._agents.append(agent)
     

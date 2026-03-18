@@ -4,7 +4,7 @@ WorkerAgent - 工作Agent
 负责执行具体任务的Agent实现。
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Callable
 import asyncio
 import time
 
@@ -33,7 +33,8 @@ class WorkerAgent:
         vector_memory: VectorMemory = None,
         max_steps: int = 8,
         enable_reflection: bool = True,
-        enable_critic: bool = True
+        enable_critic: bool = True,
+        trace_callback: Optional[Callable] = None
     ):
         self.role = role
         self.agent_id = agent_id
@@ -43,13 +44,15 @@ class WorkerAgent:
         self.llm = llm
         self.vector_memory = vector_memory
         self.max_steps = max_steps
+        self.trace_callback = trace_callback
         
         self.tool_router = ToolRouter(tools)
         self.react = ReActEngine(
             tool_router=self.tool_router,
             llm=llm,
             max_steps=max_steps,
-            enable_reflection=enable_reflection
+            enable_reflection=enable_reflection,
+            trace_callback=trace_callback
         )
         
         self.reflection = Reflection(llm=llm) if enable_reflection else None

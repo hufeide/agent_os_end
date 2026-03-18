@@ -14,18 +14,17 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 
 
-@dataclass
-class AgentRequest:
+class AgentRequest(BaseModel):
     """Agent请求"""
     task: str
     role: Optional[str] = "general"
     options: Optional[Dict[str, Any]] = None
 
 
-@dataclass
-class AgentResponse:
+class AgentResponse(BaseModel):
     """Agent响应"""
     task_id: str
     status: str
@@ -33,9 +32,10 @@ class AgentResponse:
     error: Optional[str] = None
     timestamp: str = None
     
-    def __post_init__(self):
-        if self.timestamp is None:
-            self.timestamp = datetime.now().isoformat()
+    def __init__(self, **data):
+        if 'timestamp' not in data or data['timestamp'] is None:
+            data['timestamp'] = datetime.now().isoformat()
+        super().__init__(**data)
 
 
 class ControlPlane:
@@ -240,7 +240,7 @@ class ControlPlane:
             padding: 24px;
             margin-bottom: 20px;
             backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: px solid rgba(255, 255, 255, 0.1);
         }
         
         .input-group {
